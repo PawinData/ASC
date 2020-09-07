@@ -1,0 +1,213 @@
+---
+title: "Assignment Week 1"
+output: html_document
+---
+
+### Name: Xiao (Ariel) Liang
+
+### ULCN: s2614693
+
+```{r, echo=FALSE}
+rm(list=ls(all=T)) #clears your workspace
+```
+
+
+# EXERCISE I. Simulating from the triangular distribution
+
+The *triangular distribution* is the three-parameter family of distributions with probability density looking like this:
+
+```{r, echo= FALSE} 
+xa <- -1; xb <- 1; xc <- 0
+plot(0, xlim = c(-2,2), ylim = c(0,1.5), type = "n", ylab = "f(x | a,b,c)" , xlab = "x",asp=1)
+segments(x0 = xa, x1 = xc, y0 = 0, y1 = 1, lty = 1, lwd = 2)
+segments(x0 = xb, x1 = xc, y0 = 0, y1 = 1, lty = 1, lwd = 2)
+
+segments(x0 = xc, y0 = 0, y1 = 1, lty = 2, col = 'red')
+
+```
+
+The three parameters $a$, $b$ and $c$ define the $x$ values at the left, right and top position of the triangle, respectively.
+In this assignment we focus on the symmetric case \(c = \frac{1}{2}(a + b)\) and even more in particular, the case \(a = -1, b = +1, c= 0\) which we will call the standard symmetrical triangular distribution.
+
+### (a) Derivation of cdf.
+
+Derive the cumulative distribution function \(F\) of the standard triangular distribution, and the quantile function $Q$.
+Add your answers below in this Rmd file.
+
+Hint:
+
+* Make life easy, calculate with \(a = -1, b = 1, c = 0\).
+
+* Rmd allows you to type latex style text, example: \(a = \frac{1}{2}\)
+
+* If you're not familiar with LateX, find a way to put your answer here clearly and concisely.
+
+------------------------------------
+
+**Cumulative Distribution Function:**
+$$
+\mathcal{F}(x) =
+\begin{cases}
+\frac{(x+1)^2}{2}, \; x \in [-1,0) \\
+1 - \frac{(1-x)^2}{2}, \; x \in [0,1] \\
+\end{cases}
+$$
+**Quantile Function:**
+$$
+\mathcal{Q}(y) =
+\begin{cases}
+-1 + \sqrt{2y}, \; y \in [0,0.5) \\
+1 - \sqrt{2(1-y)}, \; y \in [0.5, 1] \\
+\end{cases}
+$$
+
+-----------------------------------------
+
+### (b) Draw sample.
+
+Write R functions to generate a random sample of size \(n\) from the standard triangular distribution;
+
+1. using the trick that the sum of the two independent uniforms has a triangular distribution,
+
+```{r combine}
+f1 <- function(n)
+{
+  r1 <- runif(n, min=-0.5, max=0.5)
+  r2 <- runif(n, min=-0.5, max=0.5)
+  return(r1+r2)
+}
+```
+
+2. using the inverse transform method,
+
+```{r inverse}
+f2 <- function(n)
+{
+  r <- runif(n)
+  res <- c()
+  for(y in r)
+  {
+    if (y <0.5) {q <- -1 + sqrt(2*y)}
+    else {q <- 1 - sqrt(2*(1-y))}
+    res <- c(res,q)
+  }
+  return(res)
+}
+```
+
+3. using the acceptance-rejection method (*cf. Rizzo Example 3.7*),
+
+**Let $M=3$ and $g(x)$ be the probability density for $\mathbf{N}(0,1), then $M \cdot g(x) \geq f(x)$.**
+
+```{r acpt-rej}
+M = 3
+
+ff <- function(x)   # define f(x)
+{
+  if (x<0) {res <- x+1} else {res <- 1-x}
+  return(res)
+}
+
+gg <- function(x)   # define g(x)
+{
+  res <- exp(- x^2 / 2) / sqrt(2 * pi)
+  return(res)
+}
+
+f3 <- function(n,M)
+{
+  Sample <- c()
+  k_sample <- 0
+  while (k_sample < n)
+   {
+     X <- rnorm(1)
+     U <- runif(1)
+    if (M * U * gg(X) <= ff(X))
+      {
+        k_sample <- 1 + k_sample
+        Sample <- c(Sample, X)
+      }
+   }
+  return(Sample)
+}
+```
+
+
+4. and last, use the functions `system.time()` and `replicate()` to compare the efficiency of these methods.
+
+```{r compare}
+n <- 20000
+T1 <- system.time(replicate(10, f1(n)))
+cat("T1 =", T1, "\n")
+T2 <- system.time(replicate(10, f2(n)))
+cat("T2 =", T2, "\n")
+T3 <- system.time(replicate(10, f3(n,3)))
+cat("T3 =", T3, "\n")
+```
+
+**The first method is the most time efficient one as the algorithm has been simplied by a mathematical trick. On the other hand, the acceptance-rejection method is purely empirical and has the lowest time efficiency.**
+
+# EXERCISE II. Mixtures of Gaussians
+
+$X$, $Y$ and $Z$ are independent, and normally distributed with variance 1; their means are $-1$, $1$ and $0$ respectively. Now define the following two additional random variables:
+
+* $U = (X+Y)/2$
+* $V = \begin{cases}
+X&\text{if $Z<0$, and}\\
+Y&\text{otherwise}.
+\end{cases}$
+
+### (a) Plot histograms
+Generate a random sample from the distribution of $U$, and plot a historgram using the function `hist`. Do the same for the distribution of $V$.
+
+```{r generate}
+N <- 50000
+
+x <- rnorm(N,-1,1)
+y <- rnorm(N,1,1)
+z <- rnorm(N,0,1)
+
+u <- (x+y)/2
+hist(u)
+
+v <- rep(0,N)
+for (i in 1:N)
+{
+  if (z[i]<0) {v[i] <- x[i]}
+  else {v[i] <- y[i]}
+}
+hist(v)
+```
+
+
+### (b) What about the distributions?
+* Write down the densities of $U$ and $V$.
+
+-----------------------------------
+
+$\because X \sim \mathbf{N}(-1,1), \; Y \sim \mathbf{N}(1,1)$ and they are independent
+
+$\therefore \mu(\frac{X+Y}{2}) = \frac{\mu_X + \mu_Y}{2} = 0, \; \sigma^2(\frac{X+Y}{2}) = \frac{\sigma^2_X + \sigma^2_Y}{2^2} = 0.25$
+
+$\therefore U = \frac{X+Y}{2} \sim N(0,0.25)$
+
+$\therefore \mathcal{p}_U(t) = \frac{1}{\sqrt{0.5 \pi}} \cdot \exp[-2 t^2]$
+
+Meanwhile,
+
+$\mathcal{p}_V(t) = \mathcal{p}_X + \mathcal{p}_Y = \frac{1}{\sqrt{2\pi}} \cdot (\exp[-\frac{(t - 1)^2}{2}] + \exp[-\frac{(t + 1)^2}{2}])$
+
+----------------------------------
+
+* Which of these densities is bimodal (has multiple local maxima)?
+
+
+**The distribution of $V$ is bimodal while $U$ still obeys to a normal distribution.**
+
+* Which of these densities describes a mixture of the distributions of $X$ and $Y$?
+
+**The density of $V$ is a mixture of that of $X$ and $Y$ because a sample of $V$ is randomly picked from the distribution of $X$ or from that of $Y$ with equal chance.**
+
+* What distribution is described by the other density?
+
+**$U$ follows a squeezed normal distribution N(0,0.25).**
