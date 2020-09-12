@@ -46,11 +46,20 @@ Hint:
 
 **Cumulative Distribution Function:**
 $$
-\mathcal{F}(x) =
+\begin{aligned}
+\because & \; \mathcal{p}(x) =
+\begin{cases}
+x + 1, \; x \in [-1,0) \\
+1-x, \; x \in [0,1] \\
+\end{cases}
+\\
+\therefore & \; \mathcal{F}(x) =
+\int_{-1}^x \mathcal{p}(s)ds = 
 \begin{cases}
 \frac{(x+1)^2}{2}, \; x \in [-1,0) \\
 1 - \frac{(1-x)^2}{2}, \; x \in [0,1] \\
 \end{cases}
+\end{aligned}
 $$
 **Quantile Function:**
 $$
@@ -187,22 +196,44 @@ hist(v)
 
 $\because X \sim \mathbf{N}(-1,1), \; Y \sim \mathbf{N}(1,1)$ and they are independent
 
-$\therefore \mu(\frac{X+Y}{2}) = \frac{\mu_X + \mu_Y}{2} = 0, \; \sigma^2(\frac{X+Y}{2}) = \frac{\sigma^2_X + \sigma^2_Y}{2^2} = 0.25$
+$\therefore \mu(\frac{X+Y}{2}) = \frac{\mu_X + \mu_Y}{2} = 0, \; \sigma^2(\frac{X+Y}{2}) = \frac{\sigma^2_X + \sigma^2_Y}{2^2} = 0.5$
 
-$\therefore U = \frac{X+Y}{2} \sim N(0,0.25)$
+$\therefore U = \frac{X+Y}{2} \sim N(0,0.5)$
 
-$\therefore \mathcal{p}_U(t) = \frac{1}{\sqrt{0.5 \pi}} \cdot \exp[-2 t^2]$
+$\therefore \mathcal{p}_U(t) = \frac{1}{\sqrt{\pi}} \cdot \exp[- t^2]$
 
 Meanwhile,
 
-$\mathcal{p}_V(t) = \mathcal{p}_X + \mathcal{p}_Y = \frac{1}{\sqrt{2\pi}} \cdot (\exp[-\frac{(t - 1)^2}{2}] + \exp[-\frac{(t + 1)^2}{2}])$
+$\mathcal{p}_V(t) = \frac{\mathcal{p}_X + \mathcal{p}_Y}{2} = \frac{1}{\sqrt{8\pi}} \cdot (\exp[-\frac{(t - 1)^2}{2}] + \exp[-\frac{(t + 1)^2}{2}])$
 
 ----------------------------------
 
 * Which of these densities is bimodal (has multiple local maxima)?
 
+```{r theo vs emp}
+# Compare for U
+plot(density(u), main = "Distribution of U")
+points(u, dnorm(u, mean=0, sd=sqrt(0.5)),
+      col = "darkolivegreen", pch=".")
+legend("topleft",
+       legend=c("Empirical", "Theoretical"),
+       col=c("black", "darkolivegreen"),
+       text.col = c("black", "darkolivegreen"),
+       pch = c("-", "."))
 
-**The distribution of $V$ is bimodal while $U$ still obeys to a normal distribution.**
+# Compare for V
+plot(density(v), main="Distribution of V")
+points(v, (dnorm(v,mean=-1,sd=1)+dnorm(v,mean=1,sd=1))/2,
+       col = "darksalmon", pch=".")
+legend("topright",
+       legend = c("Empirical", "Theoretical"),
+       col = c("black", "darksalmon"),
+       text.col = c("black", "darksalmon"),
+       pch = c("-", "."))
+```
+
+
+**Neither the distribution of $U$ nor that of $V$ is bimodal; in particular, $U$ still obeys to a normal distribution.**
 
 * Which of these densities describes a mixture of the distributions of $X$ and $Y$?
 
@@ -210,4 +241,4 @@ $\mathcal{p}_V(t) = \mathcal{p}_X + \mathcal{p}_Y = \frac{1}{\sqrt{2\pi}} \cdot 
 
 * What distribution is described by the other density?
 
-**$U$ follows a squeezed normal distribution N(0,0.25).**
+**$U$ follows a squeezed normal distribution N(0,0.5).**
