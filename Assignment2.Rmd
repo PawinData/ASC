@@ -1,0 +1,168 @@
+Assignment for week 2
+=====================
+
+### Name: Xiao (Ariel) Liang
+
+### ULCN: s2614693
+
+```{r echo=FALSE}
+rm(list=ls())
+```
+
+### Monte Carlo
+
+Let $\mathbf{X}=X_1,X_2,\ldots,X_{100}$ be i.i.d. Gamma distributed values with shape and scale parameters $20$ and $1$, respectively. Define $T(\mathbf{X})=\min\{X_1,\ldots,X_{100}\}$.
+
+- Estimate and plot the sampling distribution of $T$.
+
+**Generate $n=10000$ samples of $T$ and estimate the sampling distribution of it by the histogram of the samples. The sampling distribution appears to be in a slightly left-skewed bell shape.**
+
+```{r sampling distribution}
+T <- replicate(10000, min(rgamma(100, shape=20, scale=1)))
+hist(T)
+plot(density(T), main="Estimated Density",
+     sub = "Sampling Distribution")
+```
+
+- Estimate mean and standard error of $T$.
+
+**Estimate the true mean E[T] by the sample average $\bar{T}$, and the true standard error SE by the sample standard deviation $\sigma(T)$.**
+
+```{r mean&se}
+cat("Estimated Mean:", mean(T),"\n")
+cat("Estimated Standard Error:", sd(T))
+```
+
+- What is the approximation error for $E[T]$?
+
+**By the Central Limit Theorem, When the sample size, $n$, is sufficiently large and the distribution of $T$ is not overwhelmingly skewed, $\bar{T}$ is approximately distributed in the Gaussian manner, i.e $\mathbf{N}(E[T], \frac{\sigma^2(T)}{n})$. Therefore, a sample average is about $95\%$ likely to fall in the interval $[E[T]-\frac{2\sigma(T)}{\sqrt{n}}, E[T]+\frac{2\sigma(T)}{\sqrt{n}}]$, that is to say, $\mathcal{P}(|\bar{T}-E[T]|\leq 0.0243) \approx 0.95$.**
+
+**Let $\mathcal{F}_X(\cdot)$ be the cumulative distribution function for the Gamma distribution $\Gamma(k=20,\theta=1)$ and $\mathcal{p}_X(\cdot)$ the probability density correspondingly. $\forall \: t>0$, the event $T<t$ is equivalent to at least one of $\{X_i\}_{i=1}^{100}$ being smaller than t. $E[T]$ can be found by the probability density of $T$, $\mathcal{p}_T(t)$.**
+
+$$
+\begin{aligned}
+\because \mathcal{P}(T<t) 
+&= 1 - \mathcal{P}(T \geq t) \\
+&= 1 - \mathcal{P}(X_1 \geq t, ... , X_{100} \geq t) \\
+&= 1 - \mathcal{P}(X_1 \geq t) \; ... \; \mathcal{P}(X_{100} \geq t) \\
+&= 1 - [1 - \mathcal{F}_X(t)]^{100} \\
+\therefore \mathcal{p}_T(t)
+&= \frac{d}{dt} \mathcal{P}(T<t) \\
+&= 100[1 - \mathcal{F}_X(t)]^{99} \cdot \mathcal{p}_X(t) \\
+\therefore E[T]
+&= \int_0^\infty t \cdot \mathcal{p}_T(t) dt \\
+&\approx 10.60002 \\
+\end{aligned}
+$$
+
+```{r numerical mean}
+ff <- function(t)
+{
+  res <- pgamma(t,shape=20, scale=1, lower.tail=FALSE)
+  res <- 100 * res^99 
+  res <- res * dgamma(t, shape=20, scale=1) * t
+  return(res)
+}
+
+miu <- integrate(ff, lower=0, upper=Inf)
+print(paste("The true mean is:", miu$value, 
+            "with absolute error <", miu$abs.error))
+cat("The approximation error is:", mean(T)-miu$value)
+```
+
+**Apparently the simulated result falls into the interval as we predict, and it is practically close enough to the true mean.**
+
+- Estimate $P(T<10)$ using simulation.
+
+**Approximate the true probability by the proportion in the simulated samples.**
+
+```{r proportion}
+prop <- mean(as.numeric(T<10))
+cat(100*prop, "% of simulated T values are smaller than 10.")
+```
+
+- Now work out $P(T<10)$ analytically, and calculate its value in R (hint: use the function `pgamma()`).
+
+**Plug $t=10$ into**
+$$\mathcal{P}(T<t)=1 - [1 - \mathcal{F}_X(t)]^{100}$$
+**and confirm that the empirical and the analytical results are sufficiently close.**
+
+```{r calculation}
+pp <- pgamma(10, shape=20, scale=1, lower.tail = FALSE)
+pp <- 1 - pp^100
+cat("Analytically, P(T<10) =", round(100*pp,digit=4), "%")
+```
+
+
+### Hypothesis tests
+
+After observing a sequence $\mathbf{X}=X_1,\ldots,X_{100}$ of natural numbers, we wish to test whether these numbers are Poisson distributed with mean $10$. To test this, we use the log of the likelihood as a test statistic: $T(\textbf{X})=\log P(\textbf{X};\lambda=10)$.
+
+**Approximate the null distribution of $\mathbf{T}(\mathbf{X})$ by simulating $\{X_i\}_{i=1}^{i=100}$ from Poisson distribution ($\lambda=10$) $10000$ times.**
+
+$$
+\begin{aligned}
+\mathbf{T}(\mathbf{X}) 
+&= \log [\mathcal{P}_{\lambda=10}(X_1=k_1, ... , X_{100}=k_{100})] \\
+&= \log [\prod_{i=1}^{i=100} \mathcal{P}_{\lambda=10}(X_i = k_i)] \\
+&= \sum_{i=1}^{i=100} \log [\mathcal{P}_{\lambda=10}(X_i=k_i)] \\
+\end{aligned}
+$$
+
+```{r simulate null distribution}
+N = 10000
+
+compute_T <- function(X)
+{
+  res <- 0
+  for (i in length(X))
+  {
+    res <- res + dpois(X[i],lambda=10,log=TRUE)
+  }
+  return(res)
+}
+
+null_dist <- replicate(N,compute_T(rpois(100,lambda=10)))
+hist(null_dist, breaks=20, col="lightsalmon",
+     xlab = "Simulated T",
+     main = "Estimated Null Distribution")
+```
+
+- Decide on a rejection set $K$. Use simulation to estimate the size of the test given this rejection set $K$. Tweak the rejection set until the size is less than $0.01$, in order to control the Type I error probability.
+
+**To control the probability of Type-I error under $0.01$, we decide to reject the null hypothesis if the observed value of $T$ is smaller than the threshoud $\phi \approx -4.95$.**
+
+```{r rej set}
+cut <- quantile(null_dist, probs=0.01)
+cat("Rejection Threshold:", cut)
+
+plot(density(null_dist), 
+     main = expression(paste("Rejection Set: ", alpha,"=0.01")), 
+     sub = paste("Threshold:", round(cut,digits=4)))
+abline(v=cut, col="lightsalmon")
+legend("topleft",
+       legend = c("Null Distribution", "Rejection Threshold"),
+       col = c("black", "darksalmon"),
+       text.col = c("black", "darksalmon"),
+       pch = c("-", "-"))
+```
+
+
+
+- Now sample 100 outcomes from a geometric distribution with mean 10. Calculate the test statistic and see if you can comfortably reject the hypothesis that these data are Poisson. (Note that the mean of the geometric distribution with parameter $\theta$ is $(1-\theta)/\theta$.)
+
+$$10=\frac{1-\theta}{\theta} \Rightarrow \theta = \frac{1}{11}$$
+
+```{r single test}
+set.seed(407)
+cat("Null hypothesis should be rejected: ",
+    compute_T(rgeom(100,prob=1/11))<cut)
+```
+
+**With $100$ outcomes sampled from the geometric distribution, there is no evidence strong enough to reject the null hypothesis, that is, $\mathbf{X} \sim Poisson(\lambda=10)$. In fact, if this process is repeated $100$ times, we would only be able to reject Poisson distribution fewer than $50$ times.**
+
+```{r mass test}
+k_rej <- sum(replicate(100,compute_T(rgeom(100,prob=1/11))<cut))
+cat("How many times (out of 100) is the null hypothesis rejected:", k_rej)
+```
+
