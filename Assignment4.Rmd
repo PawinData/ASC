@@ -1,0 +1,278 @@
+---
+title: "Assignment Week 4"
+output: html_document
+---
+
+### Name: Xiao (Ariel) LIANG
+
+### ULCN: s2614693
+
+```{r label = preps, echo=FALSE}
+rm(list=ls()) #clears your workspace
+```
+
+### Exercise 1
+
+We are interested in the *inverse* of the function $f(x)=x\log(x)$. Unfortunately this inverse has no closed-form solution, so we'll need to resort to numerical methods.
+
+**$f(x)=x\ln(x)$ is a smooth and monotonously increasing function on $[e,\infty)$. It is easy to show that $f(e)=e$ and thus $f^{-1}(e)=e$. $\forall y \in (e,\infty)$, $f^{-1}(y)$ is the root of $g(x)=f(x)-y$, and**
+\[
+g(e) = f(e) - y = e - y < 0, \; y \in (e, \infty)
+\]
+**In addition, the visualization of $y=f(x)$ and $y=x$ illustrates that $f(x) > x, \; \forall x > e$**
+\[
+\therefore g(y) = f(y) - y > 0, \; y \in (e, \infty)
+\\
+\therefore f^{-1}(y) \in (e,y), \; \forall y \in (e,\infty)
+\]
+
+```{r visualize}
+f <- function(x) {return(x * log(x))}
+
+x <- seq(0.1,5,by=0.01)
+y <- f(x)
+COLOR <- c('darkblue','darkred','darkolivegreen','darksalmon')
+plot(x,y, col = COLOR[1], cex = 0.8, main="Visualization")
+lines(x,x,col = COLOR[2], lty = 3)
+points(y,x, col = COLOR[3], cex = 0.8)
+points(exp(1),exp(1), col = COLOR[4], cex = 2)
+legend("topleft",
+       legend=c('y=f(x)','y=x',expression(y=={f^-1}(x)),'(e,e)'),
+       col = COLOR,
+       text.col = COLOR,
+       pch = c(rep('-',3),'o'))
+```
+
+
+**(a)** Write a function that implements the inverse $f^{-1}$ of $f$ using the bisection method. It only has to work for the part of the function where $x\ge e$, where $e=2.71828\ldots$ To get suitable starting values, you can use the fact that if $x\log(x)=y$, then $x\in(e,y]$. Test your function by checking that the calculation of $f^{-1}(f(5))$ yields a result (close to) $5$. How many iterations are needed to obtain an accuracy of $10^{-6}$ in this test?
+
+```{r inverse f bisection}
+
+# compute f^{-1}(y)
+inv_bis <- function(f,y, eps=10^(-6))
+{
+  E <- exp(1)
+  g <- function(x) {return(f(x)-y)} # the root of g(x)
+  
+  # check interval [e,y]
+  if (abs(E-y)<eps) {return(E)} else
+    if (y < E) {return('Invalid Input.')}
+  
+  # bisect [e,y] iteratively
+  left <- E
+  right <- y
+  while (right-left >= eps)
+  {
+    mid <- (left + right) / 2
+    if (g(left)*g(mid)<0) {right <- mid} else {left <- mid}
+  }
+  return(mid)
+}
+
+# calculate for y=f(5)
+cat('By bisections, the inverse of f(5) =',inv_bis(f,f(5)))
+```
+
+
+**Bisect the interval $[e, f(5)]$ iteratively until the midpoint is close enough to $5$ and count the number of iterations. As it turns out, $|f^{-1}(f(5))-5| < 10^{-6}$ after $21$ computations of midpoint.**
+
+```{r test bisection}
+# return the number of bisections
+# to yield the inverse of f(x_star) close enough to x_star
+test_bis <- function(f, x_star, eps=10^(-6))
+{
+  y_star <- f(x_star)
+  E <- exp(1)
+  if (abs(y_star-E)<eps) {return(0)} else
+    if (y_star < E) {return('Invalid input.')} 
+  
+  left <- E
+  right <- y_star
+  g <- function(x) {return(f(x)-y_star)}
+  mid <- y_star
+  count <- 0
+  while (abs(x_star - mid) >= eps)
+  {
+    mid <- (left + right) / 2
+    count <- count + 1
+    if (g(left)*g(mid)<0) {right <- mid} else {left <- mid}
+  }
+  return(count)
+}
+
+# test for x_star = 5
+cat('The inverse of f(5) is close enough to 5 after', test_bis(f, x_star=5), 'bisections.')
+```
+
+
+**(b)** Implement the method of Newton-Raphson and test it for this same problem, i.e. to calculate the inverse of $f$ at $f(5)$. (The derivative of $f$ is $f'(x)=\log(x)+1$.) Choose starting value 10. How many iterations are needed to obtain accuracy $10^{-6}$?
+
+```{r inverse f NR}
+
+# compute f^{-1}(y)
+inv_NR <- function(f,y, guess, eps=10^(-6))
+{
+  xx <- guess
+  while (abs(f(xx) - y) >= eps)
+  {
+    xx <- xx - (f(xx)-y)/(1+log(xx))
+  }
+  return(xx)
+}
+
+cat('By NR method, the inverse of f(5) =', inv_NR(f,f(5),10))
+```
+
+\[
+g'(x_k) = \frac{0-g(x_k)}{x_{k+1} - x_k} \;
+\Longrightarrow \;
+x_{k+1} = x_k - \frac{g(x_k)}{1 + \ln(x_k)}
+\]
+
+**Start from $x_0 = 10$ and generate a sequence of $\{x_j: j \geq 0 \}$ by the Newton-Raphson algorithm until $x_j$ is close enough to 5.**
+
+```{r test NR}
+
+# return both the sequence and the number of iterations
+test_NR <- function(f, x_star, eps=10^(-6))
+{
+  y_star <- f(x_star)
+  gen <- function(old) # generate a sequence one by one
+  {
+    new <- old - (f(old)-y_star)/(1 + log(old))
+    return(new)
+  }
+  
+  x <- c(10) # start from x0 = 10
+  while (abs(x[length(x)] - x_star) >= eps)
+  {
+    x <- c(x, gen(x[length(x)]))
+  }
+  return(list('sequence'=x, 'num_iter'=length(x)-1))
+}
+
+# test for x_star = 5
+cat('The inverse of f(5) is close enough to 5 after', test_NR(f,x_star=5)$num_iter, 'NR iterations.')
+```
+
+**After $4$ iterations, $|f^{-1}(f(5))|<10^{-6}$, which suggests that the Newton-Raphson algorithm is much more time efficient than the bisection method. In fact, we can test it for $x^\star = 3, 5, 10, 20$, and all of those sequences converge to $x^\star$ after $4$ iterations at most.**
+
+```{r convergence plot}
+plot(0:test_NR(f,3)$num_iter, test_NR(f,3)$sequence, 
+     col = COLOR[1], type = 'l',
+     xlim = c(0,6),
+     ylim = c(1,25),
+     main = "Speed of Convergence", 
+     xlab = "k: Iterations",
+     ylab = expression(x^(k)))
+lines(0:test_NR(f,5)$num_iter, test_NR(f,5)$sequence, col = COLOR[2])
+points(0:test_NR(f,10)$num_iter, test_NR(f,10)$sequence, col = COLOR[3], pch=19)
+lines(0:test_NR(f,20)$num_iter, test_NR(f,20)$sequence, col = COLOR[4])
+legend("bottomright",
+       legend = c('x=3','x=5','x=10','x=20'),
+       col = COLOR,
+       text.col = COLOR,
+       pch = rep('-',4))
+```
+
+Be careful! We are considering the accuracy of the estimate of $x$, so we want to know after how many iterations $x$ is sufficiently close to $5$, *not* after how many iterations $f(x)$ is sufficiently close to $f(5)$.
+
+Exercise 2
+--------------
+Look at the dataset `swiss` that's built into R. We wish to predict the column `Infant.Mortality` based on the other columns using ordinary least squares (OLS). The following code uses the machinery built into R to fit the parameters.
+
+```{r standard OLS}
+attach(swiss)
+
+t_std <- as.numeric(Sys.time())  
+model <- lm(Infant.Mortality ~ Fertility + Agriculture + Examination + Education + Catholic)
+coef_std <- model$coefficients
+t_std <- as.numeric(Sys.time()) - t_std
+
+print(coef_std)
+```
+
+The model predicts `Infant.Mortality` of each row as the inner product of the values in the other columns with the found coefficients, where the "intercept" coefficient applies to an imaginary row whose value is 1 everywhere.
+
+We can use techniques from linear algebra to find the OLS solution ourselves:
+
+**(a)** Define a matrix or data frame `X` whose first column is all ones, and whose subsequent columns are the columns for all the predictor variables in `swiss`. (That is, all columns from `swiss` except for `Infant.Mortality`.) Also define a vector or data frame `Y` that contains the `Infant.Mortality` column from the data set. Then fit the OLS coefficients $\hat\beta$ by hand, by using the formula
+
+$$\hat\beta=(X^TX)^{-1}X^TY.$$
+
+```{r algebraic OLS}
+
+# construct X and Y from dataset
+Y <- Infant.Mortality
+X <- c(rep(1,length(Y)),
+       Fertility,Agriculture,Examination,Education,Catholic)
+X <- matrix(X, nrow = length(Y))
+detach(swiss)
+
+# compute OLS coefficients
+t_alg <- as.numeric(Sys.time())
+coef_alg <- solve(t(X) %*% X) %*% t(X) %*% Y
+t_alg <- as.numeric(Sys.time()) - t_alg
+print(coef_alg)
+
+# check 
+eps <- 10^(-6)
+cat('This algebraic result matches the previous automatic computation:', 
+    max(abs(coef_alg - coef_std))<eps)
+```
+
+Check that the coefficients you find match the ones from the linear model.
+
+*Hint: `solve(A)` computes the inverse of a matrix A. For an overview of matrix operations see https://www.statmethods.net/advstats/matrix.html*
+
+**The coefficients computed by linear algebra match the ones from the built-in linear model.**
+
+**(b)** Instead of using the algebraic solution, now find the OLS coefficients by minimising the mean of squared errors (MSE) with respect to the coefficients $\beta$ using the built-in optimisation method `nlm`. Again check that the coefficients match what we found before. Note: the squared error for a row $i$ is the squared difference between $Y_i$ and the inner product between $X_i$ and $\beta$. The mean squared error is the average over all rows.
+
+**Randomly initialize $\beta$ by $\mathcal{N}(0,\mathbf{I})$ and iteratively find $\tilde{\beta}$ that minimizes $\mathcal{MSE}(\beta)$. It takes $53$ iterations to arrive the same coefficients as the one from the algebraic method.**
+
+```{r Optimization OLS}
+set.seed(505)
+# start from random initialized beta
+# minimize MSE
+MSE <- function(beta) {return(mean((Y - X %*% beta)^2))}
+t_opt <- as.numeric(Sys.time())
+res <- nlm(MSE, rnorm(ncol(X)))
+coef_opt <- res$estimate
+t_opt <- as.numeric(Sys.time()) - t_opt
+print(res)
+
+# check
+cat('This optimized result matches the previous algebraic computation:',
+    max(abs(coef_opt - coef_alg))<eps)
+```
+
+**(c)** Optimisation may have seemed overkill here, but it grants additional flexibility, because we can now easily change what function we are optimising. Instead of minimising the MSE, we can for example implement Lasso regression by adding L1-regularisation: find the coefficients that minimizing the function $\text{MSE}(\beta)+\lambda\|\beta\|_1$, where $\|\beta\|_1$ is the L1-norm: the sum of the absolute values of the coefficients. Use $\lambda=0.02$.
+
+**Apparently, the coefficients yielded by Lasso regression significantly differ from the previous results. In particular, Lasso coefficients tend to be of smaller absolute value since the objective function to be minimized is penalized for their distances to zero.**
+
+```{r Lasso Regression}
+# minimize MSE with penalty
+MSE_Lasso <- function(beta, lmb=0.02)
+{
+  return(MSE(beta) + lmb*sum(abs(beta)))
+}
+t_las <- as.numeric(Sys.time())
+res <- nlm(MSE_Lasso, rnorm(ncol(X)))
+coef_las <- res$estimate
+t_las <- as.numeric(Sys.time()) - t_las
+
+# compare coefficients
+DF <- data.frame(coef_std, coef_alg, coef_opt, coef_las)
+DF
+```
+
+**Moreover, linear algebra saves a lot of tedious work and accelerates the problem solving, requiring the least computing time among all approaches. Searching with Gaussian initialization converges to optimal equilibrium but adds randomness to its computational cost.**
+
+```{r computing time}
+
+TIME <- data.frame(matrix(c(t_std,t_alg,t_opt,t_las),nrow=1))
+names(TIME) <- c('Built-in LM', 'Linear Algebra', 'Optimization', 'Lasso')
+rownames(TIME) <- 'Computing Time'
+TIME
+```
