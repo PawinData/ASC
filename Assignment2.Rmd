@@ -115,22 +115,23 @@ N = 10000
 compute_T <- function(X)
 {
   res <- 0
-  for (i in length(X))
+  for (i in 1:length(X))
   {
     res <- res + dpois(X[i],lambda=10,log=TRUE)
   }
   return(res)
 }
 
+set.seed(3128774)
 null_dist <- replicate(N,compute_T(rpois(100,lambda=10)))
-hist(null_dist, breaks=20, col="lightsalmon",
+hist(null_dist, breaks=20, col="darksalmon",
      xlab = "Simulated T",
      main = "Estimated Null Distribution")
 ```
 
 - Decide on a rejection set $K$. Use simulation to estimate the size of the test given this rejection set $K$. Tweak the rejection set until the size is less than $0.01$, in order to control the Type I error probability.
 
-**To control the probability of Type-I error under $0.01$, we decide to reject the null hypothesis if the observed value of $T$ is smaller than the threshoud $\phi \approx -4.95$.**
+**To control the probability of Type-I error under $0.01$, we decide to reject the null hypothesis if the observed value of $T$ is smaller than the threshoud $\phi \approx -273.84$.**
 
 ```{r rej set}
 cut <- quantile(null_dist, probs=0.01)
@@ -139,7 +140,7 @@ cat("Rejection Threshold:", cut)
 plot(density(null_dist), 
      main = expression(paste("Rejection Set: ", alpha,"=0.01")), 
      sub = paste("Threshold:", round(cut,digits=4)))
-abline(v=cut, col="lightsalmon")
+abline(v=cut, col="darksalmon")
 legend("topleft",
        legend = c("Null Distribution", "Rejection Threshold"),
        col = c("black", "darksalmon"),
@@ -159,7 +160,7 @@ cat("Null hypothesis should be rejected: ",
     compute_T(rgeom(100,prob=1/11))<cut)
 ```
 
-**With $100$ outcomes sampled from the geometric distribution, there is no evidence strong enough to reject the null hypothesis, that is, $\mathbf{X} \sim Poisson(\lambda=10)$. In fact, if this process is repeated $100$ times, we would only be able to reject Poisson distribution fewer than $50$ times.**
+**With $100$ outcomes sampled from the geometric distribution, there is indeed strong evidence against the null hypothesis, that is, $\mathbf{X} \sim Poisson(\lambda=10)$. In fact, if this process is repeated $100$ times, we would be able to reject Poisson distribution every single time.**
 
 ```{r mass test}
 k_rej <- sum(replicate(100,compute_T(rgeom(100,prob=1/11))<cut))
