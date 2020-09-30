@@ -1,0 +1,189 @@
+---
+title: "Assignment Week 3"
+output: html_document
+---
+
+### Name: Xiao (Ariel) LIANG
+
+### ULCN: s2614693
+
+```{r label = preps, echo=FALSE}
+rm(list=ls(all=T)) #clears your workspace
+```
+
+
+
+We will compute or approximate the value of the expectation 
+
+$$I=E[X^2\mathbb{1}_{[1, \infty)}(X) ], \qquad X \sim \mathcal N(0, 1).$$
+
+
+### Exercise 1. Importance sampling
+
+- Obtain a Monte Carlo estimate of $I$ using importance sampling. (There are multiple solutions; make sure that your method is substantially more efficient than straightforward simulation from a normal distribution
+with mean zero.)
+
+**Let $g(X)=X^2 \cdot \mathbb{1}_{[1,\infty)}(X)$. Because $g(X) \approx 0$ in most cases, the naive simulation is not accurate enough, and therefore Importance Sampling is required.**
+
+
+```{r g(X) shape}
+g <- function(X) {return(X^2 * as.numeric(X>1))}
+
+hist(g(rnorm(10000)), xlab = "Simulated g(X)",
+     main = "Histogram of g(X)")
+```
+
+**Let $Y \sim \mathcal{N}(1,1)$ and the probability density for $\mathcal{N}(\mu, \sigma^2)$ be $p_{\mu,\sigma}(\cdot)$. Then**
+
+\[
+\begin{aligned}
+\mathbb{E}[g(X)]
+&= \int_{-\infty}^\infty g(x) \cdot p_{0,1}(x) dx \\
+&= \int_{-\infty}^\infty g(x)p_{1,1}(x) \cdot \frac{p_{0,1}(x)}{p_{1,1}(x)} dx \\
+&= \int_{-\infty}^\infty g(y)\frac{p_{0,1}(y)}{p_{1,1}(y)} \cdot p_{1,1}(y)dy \\
+&= \int_{-\infty}^\infty g(y)e^{\frac{1-2y}{2}} \cdot p_{1,1}(y)dy \\
+&= \mathbb{E}[g(Y)e^{0.5-Y}] \\
+&= \mathbb{E}[h(Y)]
+\end{aligned}
+\]
+
+**in which $h(Y)=g(Y)e^{0.5-Y}$. And the frequency of $h(Y) \approx 0$ appears to be less overwhelming.**
+
+```{r h(Y) shape}
+h <- function(Y) {return(g(Y)*exp(0.5-Y))}
+
+hist(h(rnorm(10000,mean=1)), xlab = "Simulated h(Y)",
+     main = "Histogram of h(Y)", col = "darkred")
+```
+
+**We then choose to approximate $I = \mathbb{E}(h(Y))$ by the average of simulated samples.**
+
+```{r I IS}
+set.seed(68)
+I_IS <- mean(h(rnorm(10000,mean=1)))
+cat("By Importance Sampling, I is approximated to be", I_IS)
+```
+
+
+- Calculate the MC approximation error.
+
+**Find the true value of $I$ by numerical integration and compute the approximation errors. Not to our surprise, the approximation error by Importance Sampling is significantly smaller than that by Naive Simulation.**
+
+\[
+|\epsilon_{Naive}| > |\epsilon_{IS}|
+\]
+
+```{r approx errors IS}
+gg <- function(x) {return(g(x)*dnorm(x,mean=0,sd=1))}
+truth <- integrate(gg, lower=-Inf, upper=Inf)
+I_true<- truth$value
+print(paste("The true I is:", I_true, 
+            "with absolute error <", truth$abs.error))
+
+eps_naive <- sqrt(mean((replicate(1000,mean(g(rnorm(10000))))-I_true)^2))
+cat("Naive Simulation: approximation error =",eps_naive,"\n")
+eps_IS <- sqrt(mean((replicate(1000,mean(h(rnorm(10000,mean=1))))-I_true)^2))
+cat("Importance Sampling: approximation error =",eps_IS,"\n")
+cat("The approximation error by Importance Sampling is smaller than that by Naive Simulation:", eps_IS<eps_naive)
+```
+
+
+### Exercise 2. Antithetic variables
+
+- This time use antithetic variables for computing $I$.
+
+```{r I Anti}
+set.seed(44)
+U <- runif(10000)
+I_anti <- mean(g(c(qnorm(U), qnorm(1-U))))
+cat("By Antithetic Variables: I =", I_anti)
+```
+
+- Estimate the MC approximation error using simulation. Compare this to importance sampling.
+
+```{r approx error Anti}
+eps_anti <- sqrt(mean((replicate(1000,mean(g(c(qnorm(U), qnorm(1-U)))))-I_true)^2))
+cat("Antithetic Variables: approximation error =",eps_anti,"\n")
+cat("The Antithetic Variables approach improves the approximation error:", eps_anti<eps_IS)
+```
+
+**The approximation error is even smaller by Antithetic Variables than by Importance Sampling.**
+
+- Now combine antithetic variables with importance sampling to achieve maximal accuracy.
+
+**Apply the method of Antithetic Variables to $Y \sim \mathcal{N}(1,1)$ and compute $I$ by $\mathbb{E}[h(Y)]$ instead of $\mathbb{E}[g(X)]$.**
+
+```{r combine}
+set.seed(29)
+UU <- runif(10000)
+Y <- c(qnorm(UU,mean=1), qnorm(1-UU,mean=1))
+I_comb <- mean(h(Y))
+cat("By Combined Method: I =", I_comb)
+```
+
+- Compute the MC approximation error and compare to the previous methods.
+
+```{r compare errors}
+eps_comb <- sqrt(mean((replicate(1000,mean(h(c(qnorm(UU<-runif(10000),mean=1), qnorm(1-UU,mean=1)))))-I_true)^2))
+COMPARE <- data.frame("Approximation Error" = c(eps_naive,
+                                                eps_IS,
+                                                eps_anti,
+                                                eps_comb))
+rownames(COMPARE) <- c("Naive Simulation",
+                       "Importance Sampling",
+                       "Antithetic Variables",
+                       "Combined")
+COMPARE
+```
+
+**Apparently, naive siulation yields the largest approximation error for $I$, while the combination of Importance Sampling and Antithetic Variables outperforms the other three approaches.**
+
+### Exercise 3. Metropolis-Hastings
+
+Let $f(x)=(2+\sin(1/x))\exp(-x^2)$.
+
+- Use the Metropolis-Hastings algorithm to sample from the distribution with density proportional to $f$, and plot a histogram. Use a suitable proposal distribution.
+
+```{r check f}
+f <- function(w){return((2+sin(1/w))*exp(-w^2))}
+S <- integrate(f, lower=-Inf, upper=Inf)
+S 
+S <- S$value
+```
+
+**Since $\int_{-\infty}^\infty f(w) dw < \infty$, there is a probability density $p(\cdot) \propto f(\cdot)$ that we can sample $\{W_t:t \geq 0\}$ from. Let the proposal distribution be $\mathcal{N}(W,1)$ as W can take any nonzero values.**
+
+```{r MH Simulate}
+# proposal distribution
+G <- function(z,w) {return(dnorm(z, w, 1))}
+judge <- function(Z,W) {return(f(Z)*G(Z,W)/(f(W)*G(W,Z)))}
+
+# simulate
+N <- 10000
+W <- c(1, rep(0,N-1))
+for (t in 1:(N-1))
+{
+  Z <- rnorm(1, W[t], 1)
+  V <- runif(1)
+  W[t+1] <- ifelse(V < judge(Z,W[t]), Z, W[t])
+}
+
+# histogram
+hist(W[-c(1:2000)], breaks = 20, probability = TRUE,
+     col = "darkolivegreen",
+     main = "Histogram of W", xlab = "W")
+lines(ww <- seq(-3,3,by=0.07), f(ww)/S, 
+      col="darkorange", lwd=2)
+legend("topright",
+       legend = c("Simulated W", "p(w)"),
+       col = c("darkolivegreen", "darkorange"),
+       text.col = c("darkolivegreen", "darkorange"),
+       pch = c(15, 19))
+```
+
+**The last $2000$ simulated samples gives a histogram that roughly agrees with $\mathcal{p}(w)$, the theoretical probability density of W, suggesting that the Metropolis-Hastings algorithm generates a converging process.**
+
+\[
+\mathcal{p}(w) = \frac{1}{\int_{-\infty}^{\infty} f(w) dw} f(w)
+\]
+
