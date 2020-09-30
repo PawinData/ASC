@@ -67,6 +67,7 @@ sample <- rmixt(N,w=w_trial,mu=mu_trial,sigma=sig_trial)
 hist(sample, breaks=50,
      main="Histogram of Gaussian Mixture Samples",
      col="darkgreen")
+
 ```
 
 
@@ -193,7 +194,7 @@ $$
 $$
 w_k^{(t+1)} = \frac{\sum_{i=1}^{i=N} \Omega_{i,k}^{(t)}}{\sum_{k=1}^{k=K} \sum_{i=1}^{i=N}\Omega_{i,k}^{(t)}}, \; k=1,...,K
 $$
-**And by partial derivatives, $\vec{\mu}^{(t+1)}$ is $\vec{x} \cdot \Omega^{(t)}$ divided element-wise by the column sums of $\Omega^{(t)}$, and $\vec{\sigma^2}^{(t+1)}$ is the diagonal of $([1,...,1]^T \cdot \vec{x} - \vec{\mu}^{(t+1)} \cdot [1,...,1])^2 \cdot \Omega^{(t)}$ divided element-wise by the column sums of $\Omega^{(t)}$.**
+**And by partial derivatives, $\vec{\mu}^{(t+1)}$ is $\vec{x} \cdot \Omega^{(t)}$ divided element-wise by the column sums of $\Omega^{(t)}$. Let $A$ be $[1,...,1]^T \cdot \vec{x} - \vec{\mu}^{(t+1)} \cdot [1,...,1]$ squared element-wise and multiplied by $\Omega^{(t)}$. Then $\vec{\sigma^2}^{(t+1)}$ is the diagonal of $A$ divided element-wise by the column sums of $\Omega^{(t)}$.**
 
 $$
 \begin{aligned}
@@ -392,17 +393,17 @@ EM_group <- function(X,K)
 ```
 
 
-**Both $\theta_3$ and $\theta_4$ yield a satisfactory estimate for the Gaussian mixture model that $X$ is sampled from. Moreover, they can be directly computed from $X$ and the value of $K$ we set, and thus automate the initialization.**
+**Both $\Theta_3^{(0)}$ and $\Theta_4^{(0)}$ yield a satisfactory estimate for the Gaussian mixture model that $X$ is sampled from. Moreover, they can be directly computed from $X$ and the value of $K$ we set, and thus automate the initialization.**
 
 $$
-\theta_3 =
+\Theta_3^{(0)} =
 \begin{bmatrix}
 1/3 & \bar{X}-s_X & s_X \\
 1/3 & \bar{X}     & s_X \\
 1/3 & \bar{X}+s_X & s_X \\
 \end{bmatrix}
 , \;
-\theta_4 =
+\Theta_4^{(0)} =
 \begin{bmatrix}
 p_{(1)} & \bar{X}_{(1)} & s_{X(1)} \\
 p_{(2)} & \bar{X}_{(2)} & s_{X(2)} \\
@@ -433,7 +434,7 @@ cat("Starting from the 4th initialization, the optimization takes",
 ```
 
 
-**While the EM algorithm initialized by group statistics seems more time effcient and capturing tiny peaks when weights are strongly skewed, initializing by equal weights and overall statistics shows higher robustness to (i) Peculiar Component:** when a component of the Gaussian mixture model is far away from the others, $s_X$ might not properly describe the distance between component means; **(ii) Misjudged K:** In practice, $K$ is usually determined by counting the peaks in the histogram of sample $X$. If several component means are relatively close, there could be one big lump instead of several peaks. Incorrect $K$ jeopardizes the chance of finding truth. **In conclusion, I would recommend the third way of initialization for its reliability.**
+**While the EM algorithm initialized by group statistics seems more time effcient and capable of capturing tiny peaks when weights are strongly skewed, initializing by equal weights and overall statistics shows higher robustness to (i) Peculiar Component:** when a component of the Gaussian mixture model is far away from the others, $s_X$ might not properly describe the distance between component means; **(ii) Misjudged K:** In practice, $K$ is usually determined by counting the peaks in the histogram of sample $X$. If several component means are relatively close, there could be one big lump instead of several peaks. Incorrect $K$ jeopardizes the chance of finding truth. **In conclusion, I would recommend the third way of initialization for its reliability.**
 
 
 ```{r Test peculiar component}
