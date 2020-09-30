@@ -1,0 +1,561 @@
+---
+title: "Assignment Week 5"
+output: html_document
+---
+
+### Name: Xiao (Ariel) Liang
+
+### ULCN: s2614693
+
+```{r label = preps, echo=FALSE}
+rm(list=ls()) #clears your workspace
+```
+
+### Exercise 1
+
+We will use the EM algorithm to estimate the parameters of a normal mixture model and study its behavior. Recall that $X$ follows a normal mixture distribution if it has density, 
+$$f(x; \theta) = \sum_{k = 1}^K w_k \phi(x; \mu_k, \sigma_k),$$
+where 
+
+* $\theta = (w_1, \dots, w_K, \mu_1, \sigma_1, \dots, \mu_K, \sigma_K)$ 
+is the vector of unknown parameters,
+* $\phi(\cdot; \mu, \sigma)$ is the density of a $\mathcal{N}(\mu, \sigma^2)$ random variable.
+
+Also keep in mind that there are constraints on the parameters:
+
+* $\sum_{k = 1}^K w_k = 1$ 
+* $\sigma_k > 0, 0 \le w_k \le 1$ for all $k = 1, \dots, K$.
+
+
+**(a)** Write a function `rmixt()` that simulates from a Gaussian mixture model.
+The function should take four arguments:
+
+* `n`: the number of samples to simulate,
+* `w`, `mu`, `sigma`: the model parameters (length `K` vectors).
+
+Verify that your function is correct by making a histogram of simulated data. 
+This function will be useful to check whether your solution of (c) is correct.
+
+**Simulate $N$ indexes of the Gaussian distribution in the mixture model with $\mathbb{P}(\mathbf{ID}=k)=w_k$ first, and then sample $X$ accordingly. For example, let $K=3$ and simulate a vector, each of whose $N=10000$ elements is an integer from $1$ to $K$. If $\mathbb{P}(ID=1)=0.1$, then approximately $10\%$ of $N$ samples will be drawn from $\mathcal{N}(0,1)$. Similarly, about $40\%$ samples come from $\mathcal{N}(-5,2)$, and $50\%$ from $\mathcal{N}(8,3)$. Because the sample size is sufficiently large, we expect to see $3$ peaks in the histogram of the simulated samples, namely, $x = -5, 0, 8$.**
+
+**Solution**
+
+```{r mixture generate def}
+# generate N samples from the Gaussian mixture defined by w, mu, sigma
+
+rmixt <- function(N, w, mu, sigma) 
+{
+  TAB <- table(sample(1:length(w), N, replace=TRUE, prob=w))
+  samples <- c()
+  for (k in 1:length(w))
+  {
+    samples <- c(samples, rnorm(TAB[[k]],mean=mu[k],sd=sigma[k]))
+  }
+  return(samples)
+}
+```
+
+```{r mixture generate check}
+# simulated 10000 samples from N(0,1), N(-5,2), N(8,3)
+N <- 10000
+w_trial <- c(0.1,0.4,0.5)
+mu_trial <- c(0,-5,8)
+sig_trial <- c(1,2,3)
+sample <- rmixt(N,w=w_trial,mu=mu_trial,sigma=sig_trial)
+
+# histogram of simulated samples
+hist(sample, breaks=50,
+     main="Histogram of Gaussian Mixture Samples",
+     col="darkgreen")
+```
+
+
+**(b)** Write a function `dmixt()` that computes the mixture density. It should 
+take the following arguments:
+
+* `x`: vector of evaluation points,
+* `w`, `mu`, `sigma`: the model parameters (length `K` vectors).
+
+Verify that your function is correct by plotting the density over a histogram of simulated data. 
+
+**Solution**
+
+```{r mixture density def}
+# analytical probablity density of Gaussian mixture
+dmixt <- function(x, w, mu, sigma) 
+{
+  p <- 0
+  for (k in 1:length(w))
+  {
+    p <- p + w[k] * dnorm(x, mean=mu[k], sd=sigma[k])
+  }
+  return(p)
+}
+```
+
+**The empirical distribution of the simulated samples agrees well with the analytical probability density of the Gaussian mixture that we sampled from.**
+
+```{r mixture density check}
+# empirical VS analytical
+hist(sample, breaks=50, freq=FALSE, ylim=c(0,0.1),
+     main="Distribution of Gaussian Mixture Samples",
+     col="darkolivegreen")
+lines(xx<-seq(min(sample),max(sample),by=0.1), 
+      dmixt(xx,w_trial,mu_trial,sig_trial),
+      col="darkorange", lwd=2)
+legend("topright",
+       legend = c('Empirical Histogram','Analytical Density'),
+       col = c("darkolivegreen","darkorange"),
+       text.col = c("darkolivegreen","darkorange"),
+       pch = c(15,16))
+```
+
+**Ideally, one can find the Maximum Likelihood Estimator (MLE) of $\theta$ by using the brute force to minimize under constraints:**
+
+\[
+-\log [\mathbb{p}(\vec{x}|\mathbf{\theta})]
+=
+-\log [\prod_{i=1}^{i=N} f(x_i|\mathbf{\theta})]
+=
+- \sum_{i=1}^{i=N} \log [\sum_{k=1}^{k=K}w_k\phi(x_i|\mu_k,\sigma_k)]
+\]
+
+**where $\vec{x}=[x_1,...,x_N]$ is the observation. In practice, however, the objective function is so complicated that even when the number of its parameters, $3K$, is not exceedingly large, overflow and local minima are very likely to occur. Indeed, the plain optimization fails to converge to the parameters of the Gaussain mixture model we previously sampled from. Therefore the EM algorithm is required.**
+
+```{r maximize MLE plain}
+# try brute-force optimization
+
+# objective function to minimize
+Obj <- function(theta)  # theta=[w_1,...,w_K,mu_1,...,mu_K,sigma_1,...,sigma_K]
+{
+  T <- matrix(theta, ncol=3)
+  res <- log(dmixt(sample, w=T[,1], mu=T[,2], sigma=T[,3]))
+  return(-sum(res))
+}
+
+# constraints
+M <-matrix(0, nrow=11, ncol=9) # left matrix
+M[1,1:3] <- 1
+M[2,1:3] <- -1
+M[3:5,1:3] <- diag(3)
+M[6:8,1:3] <- (-1)*diag(3)
+M[9:11,7:9] <- diag(3)
+eps <- 10^(-5)       # right vector
+s <- c(1-eps,-1-eps, 0,0,0, -1,-1,-1, 0,0,0)
+
+# optimization
+guess <- c(0.3,0.3,0.4, 0,-1,1, 1,2,3)  # initial guess
+opt <- constrOptim(theta=guess, Obj, gr=NULL, ui=M, ci=s)
+matrix(opt$par, ncol=3) # output matrix: [w, mu, sigma]
+```
+
+**(c)** Write a function `fit_em()` that implements the EM algorithm for fitting 
+the Gaussian mixture parameters. The function should take five arguments
+
+* `x`: the data,
+* `w, mu, sigma`: initial guesses for parameters.
+* `eps`: a threshold value that is used to terminate the algorithm as soon as the parameters reach their optimal values.
+
+It should return a matrix with columns `(w, mu, sigma)`.
+
+**The intuition behind the EM Algorithm is to optimize $\vec{\theta}$ iteratively by maximizing the joint log-likelihood of $\{(X=x_i,Y=k_i)\}_{i=1}^{i=N}$ where $Y$ indicates the specific Gaussian distribution that $X$ is drawn from and $\mathbb{P}(Y=k)=w_k$. $Y$ is sampled every time $X$ is sampled. Because $Y$ is not observed (unknown), substitute $\log [p(X=x_i,Y=k_i|\vec{\theta})]$ with the expected value of it conditional on what has been observed, that is, $\mathbb{E}[\log(p(x_i,Y|\vec{\theta}))|X=x_i]$. Then the updating rule becomes**
+
+$$
+\begin{aligned}
+\vec{\theta}^{(t+1)} 
+&=arg \max J(\vec{\theta} | \vec{\theta}^{(t)}) 
+\\
+\mathbf{constraints} \; &
+\begin{cases}
+0 \leq w_k \leq 1, \; k=1,...,K \\
+\sum_{k=1}^{k=K} w_k =1 \\
+\sigma_k >0, \; k=1,...,K \\
+\end{cases}
+\end{aligned}
+$$
+in which
+
+$$
+\begin{aligned}
+J(\vec{\theta} | \vec{\theta}^{(t)})
+&= \sum_{i=1}^{i=N} \mathbb{E}[\log(p(x_i,Y|\vec{\theta}))|X=x_i] \\
+&= \sum_{i=1}^{i=N} \sum_{k=1}^{k=K}[\log(p(x_i,Y=k|\vec{\theta}))\cdot \mathbb{P}(Y=k|X=x_i,\vec{\theta}^{(t)})] \\
+&= \sum_{i=1}^{i=N} \sum_{k=1}^{k=K} [\log (w_k \phi(x_i|\mu_k,\sigma_k)) \cdot \frac{p(X=x_i,Y=k|\vec{\theta}^{(t)})}{p(X=x_i|\vec{\theta}^{(t)})}] \\
+&= \sum_{i=1}^{i=N} \sum_{k=1}^{k=K} [\log (w_k \phi(x_i|\mu_k,\sigma_k)) \cdot \frac{w_k^{(t)} \phi(x_i|\mu_k^{(t)},\sigma_k^{(t)})}{\sum_{k=1}^{k=K} w_k^{(t)} \phi(x_i|\mu_k^{(t)},\sigma_k^{(t)})}] \\
+&= \sum_{i=1}^{i=N} \sum_{k=1}^{k=K} [\Omega_{i,k}^{(t)}(\log w_k + \log \phi(x_i|\mu_k,\sigma_k))] \\
+&= \sum_{i=1}^{i=N} \sum_{k=1}^{k=K} [\Omega_{i,k}^{(t)} \cdot \log w_k] + \sum_{i=1}^{i=N} \sum_{k=1}^{k=K} [\Omega_{i,k}^{(t)} \cdot \log \phi(x_i|\mu_k,\sigma_k)] \\
+&= g(\vec{w}|\vec{\theta}) + h(\vec{\mu},\vec{\sigma}|\vec{\theta})
+\end{aligned}
+$$
+
+**until $\| \vec{\theta}^{(t+1)} - \vec{\theta}^{(t)}\| < \epsilon$. $\Omega^{(t)}$ is a $N$-by-$K$ matrix defined by $\vec{x},\, \vec{\theta}^{(t)}$ and updated in each step. By the method of Lagrange multipliers, $\vec{w}^{(t+1)}$ is the normalized column sums of $\Omega^{(t)}$:**
+
+$$
+w_k^{(t+1)} = \frac{\sum_{i=1}^{i=N} \Omega_{i,k}^{(t)}}{\sum_{k=1}^{k=K} \sum_{i=1}^{i=N}\Omega_{i,k}^{(t)}}, \; k=1,...,K
+$$
+**And by partial derivatives, $\vec{\mu}^{(t+1)}$ is $\vec{x} \cdot \Omega^{(t)}$ divided element-wise by the column sums of $\Omega^{(t)}$, and $\vec{\sigma^2}^{(t+1)}$ is the diagonal of $([1,...,1]^T \cdot \vec{x} - \vec{\mu}^{(t+1)} \cdot [1,...,1])^2 \cdot \Omega^{(t)}$ divided element-wise by the column sums of $\Omega^{(t)}$.**
+
+$$
+\begin{aligned}
+\mu_k^{(t+1)} &= 
+\frac{\sum_{i=1}^{i=N} [\Omega_{i,k}^{(t)}\cdot x_i]}{\sum_{i=1}^{i=N} \Omega_{i,k}^{(t)}}
+\\
+\sigma_k^{(t+1)} &=
+\sqrt{\frac{\sum_{i=1}^{i=N} [\Omega_{i,k}^{(t)}(x_i - \mu_k^{(t+1)})^2]}{\sum_{i=1}^{i=N} \Omega_{i,k}^{(t)}}}
+\end{aligned}
+\; , \; k = 1,...,K
+$$
+
+**Solution**
+
+```{r EM compute}
+fit_em <- function(X,w_init,mu_init,sigma_init,eps=10^(-6))
+{
+  theta_old <- 0
+  theta_new <- c(w_init, mu_init, sigma_init)
+  
+  while (sum((theta_new-theta_old)^2) >= eps)
+  {
+    theta_old <- theta_new
+    # construct matrix Omega
+    T <- matrix(theta_old, ncol=3)
+    OMG <- c()
+    for (i in 1:length(X))
+    {
+      omg <- T[,1]*dnorm(X[i], mean=T[,2], sd=T[,3])
+      OMG <- c(OMG, omg/sum(omg))
+    }
+    OMG <- t(matrix(OMG, ncol=length(X)))
+    # update
+    w <- colSums(OMG)
+    w <- w/sum(w)
+    mu <- as.vector(X%*%OMG / colSums(OMG))
+    sig <- diag(t(outer(X,mu,`-`)^2) %*% OMG) / colSums(OMG)
+    theta_new <- c(w,mu,sqrt(as.vector(sig)))
+  }
+  
+  # output parameters as a matrix
+  return(matrix(theta_new, ncol=3))
+}
+```
+
+
+```{r EM check}
+fit_em(sample, w_init = c(0.2,0.3,0.5), mu_init = c(0,1,-1), sigma_init = c(1,2,3))
+```
+
+**Indeed, what the EM algorithm finds for the previously simulated samples is very close to the true parameters of the Gaussian mixture distribution that the samples come from.**
+
+**(d)** 
+
+We will now investigate the role of the starting parameters. We will use the 
+following data:
+
+```{r test sample}
+set.seed(68)
+w_true <- c(0.2, 0.3, 0.5)
+mu_true <- c(0.5, 2, 4)
+sigma_true <- c(0.5, 1, 0.5)
+X <- rmixt(1000, w_true, mu_true, sigma_true)
+a <- min(X)
+b <- max(X)
+```
+
+Consider the following choices of initial guesses:
+
+1. `w <- w_true; mu <- mu_true; sigma <- sigma_true`.
+2. `w <- rep(1/3, 3); mu <- rep(mean(X), 3); sigma <- rep(sd(X), 3)`
+3. `w <- rep(1/3, 3); mu <- mean(X) + sd(X) * c(-1, 0, 1); sigma <- rep(sd(X), 3)`
+4. The group frequency/mean/SD where groups are computed via the k-means algorithm:
+
+``` r
+clusters <- kmeans(X, 3)$cluster
+w <- table(clusters) / length(X)
+mu <- tapply(X, clusters, mean)
+sigma <- tapply(X, clusters, sd)
+```
+
+For every choice of starting parameters, run the EM algorithm and 
+compare the estimated densities with a histogram. Which methods can you recommend 
+for practical use?
+
+**Solution**
+
+##### 1.
+
+**Starting from the true parameters, $\vec{\theta}$ does not stay there but is slightly driven away from it by the EM algorithm. While the performance is very good, true $\vec{\theta}$ is typically unavailable in practice and exactly what we strive to estimate. If the ground truth is known, the EM algorithm is not needed in the first place.**
+
+```{r EM test truth}
+hist(X, breaks=40, freq=FALSE, col="burlywood2", ylim=c(0,0.6),
+     main="Performance of EM Algorithm", 
+     sub=expression(w^(0)==list(0.2,0.3,0.5)~~mu^(0)==list(0.5,2,4)~~sigma^(0)==list(0.5,1,0.5)))
+lines(xx<-seq(a,b,by=0.05), dmixt(xx,w_true,mu_true,sigma_true),
+      col="darkred",lwd=1.5)
+# estimate a density for X using parameters output by EM
+para1 <- fit_em(X, w_true, mu_true, sigma_true)
+lines(xx, dmixt(xx, para1[,1], para1[,2], para1[,3]),
+      col="darkblue", lty="dashed", lwd=2)
+legend("topleft",
+       legend = c('Empirical Histogram','Analytical Density','Estimated Density'),
+       col = c("burlywood2","darkred","darkblue"),
+       text.col = c("burlywood3","darkred","darkblue"),
+       pch = c(15,16,16))
+```
+
+##### 2.
+
+**Although equal weights (i.e. $w_k=\frac{1}{K}$) is a reasonable guess without more information, the overall center and the overall dispersion of sample $X$ are definitely not good choices of initialization. Apparently the EM optimization gets stuck in a local minimum, and the estimated density hardly reflect anything more than what is given, that is, the overall center and dispersion.**
+
+```{r EM test overall}
+hist(X, breaks=40, freq=FALSE, col="burlywood2", ylim=c(0,0.6),
+     main="Performance of EM Algorithm", 
+     sub=expression(w^(0)==list(frac(1,3),frac(1,3),frac(1,3))~~mu^(0)==list(bar(X),bar(X),bar(X))~~sigma^(0)==list(s[X],s[X],s[X])))
+lines(xx<-seq(a,b,by=0.05), dmixt(xx,w_true,mu_true,sigma_true),
+      col="darkred",lwd=1.5)
+# estimate a density for X using parameters output by EM
+para2 <- fit_em(X, rep(1/3,3), rep(mean(X),3), rep(sd(X),3))
+lines(xx, dmixt(xx, para2[,1], para2[,2], para2[,3]),
+      col="darkgreen", lty="dashed", lwd=2)
+legend("topleft",
+       legend = c('Empirical Histogram','Analytical Density','Estimated Density'),
+       col = c("burlywood2","darkred","darkgreen"),
+       text.col = c("burlywood3","darkred","darkgreen"),
+       pch = c(15,16,16))
+```
+
+##### 3. 
+
+**It turns out that it is $\vec{\mu}$ that easily gets stuck in local minima because the performance is remarkably improved once $\vec{\mu}^{(0)}$ is differentiated by the standard deviation of sample $X$, other initialized values held constant.**
+
+```{r EM test diff}
+hist(X, breaks=40, freq=FALSE, col="burlywood2", ylim=c(0,0.6),
+     main="Performance of EM Algorithm", 
+     sub=expression(w^(0)==list(frac(1,3),frac(1,3),frac(1,3))~~mu^(0)==list(bar(X)-s[X],bar(X),bar(X)+s[X])~~sigma^(0)==list(s[X],s[X],s[X])))
+lines(xx<-seq(a,b,by=0.05), dmixt(xx,w_true,mu_true,sigma_true),
+      col="darkred",lwd=1.5)
+# estimate a density for X using parameters output by EM
+para3 <- fit_em(X, rep(1/3,3),mean(X)+sd(X)*c(-1,0,1),rep(sd(X),3))
+lines(xx, dmixt(xx, para3[,1], para3[,2], para3[,3]),
+      col="darkviolet", lty="dashed", lwd=2)
+legend("topleft",
+       legend = c('Empirical Histogram','Analytical Density','Estimated Density'),
+       col = c("burlywood2","darkred","darkviolet"),
+       text.col = c("burlywood3","darkred","darkviolet"),
+       pch = c(15,16,16))
+```
+
+##### 4.
+
+**The density curve estimated from group proportions, centers and dispersions also fits the empirical distribution of $X$ very well.**
+
+```{r EM test grouped}
+hist(X, breaks=40, freq=FALSE, col="burlywood2", ylim=c(0,0.6),
+     main="Performance of EM Algorithm", 
+     sub=expression(w^(0)==list(p[1],p[2],p[3])~~mu^(0)==list(bar(X[1]),bar(X[2]),bar(X[3]))~~sigma^(0)==list(s[X1],s[X2],s[X3])))
+lines(xx<-seq(a,b,by=0.05), dmixt(xx,w_true,mu_true,sigma_true),
+      col="darkred",lwd=1.5)
+# estimate a density for X using parameters output by EM
+clusters <- kmeans(X,3)$cluster
+para4 <- fit_em(X, table(clusters)/length(X),
+                   tapply(X, clusters, mean),
+                   tapply(X, clusters, sd))
+lines(xx, dmixt(xx, para4[,1], para4[,2], para4[,3]),
+      col="deepskyblue3", lty="dashed", lwd=2)
+legend("topleft",
+       legend = c('Empirical Histogram','Analytical Density','Estimated Density'),
+       col = c("burlywood2","darkred","deepskyblue3"),
+       text.col = c("burlywood3","darkred","deepskyblue3"),
+       pch = c(15,16,16))
+```
+
+```{r pipeline}
+EM_diff <- function(X,K)
+{
+  m <- mean(X)
+  s <- sd(X)
+  fit_em(X,
+         w_init = rep(1/K, K),
+         mu_init = seq(m-0.5*s*(K-1), m+0.5*s*(K-1), length.out=K),
+         sigma_init = rep(s,K)
+        )
+}
+
+EM_group <- function(X,K)
+{
+  clusters <- kmeans(X,K)$cluster
+  fit_em(X, 
+         w_init = table(clusters)/length(X),
+         mu_init = tapply(X, clusters, mean),
+         sigma_init = tapply(X, clusters, sd)
+        )
+}
+```
+
+
+**Both $\theta_3$ and $\theta_4$ yield a satisfactory estimate for the Gaussian mixture model that $X$ is sampled from. Moreover, they can be directly computed from $X$ and the value of $K$ we set, and thus automate the initialization.**
+
+$$
+\theta_3 =
+\begin{bmatrix}
+1/3 & \bar{X}-s_X & s_X \\
+1/3 & \bar{X}     & s_X \\
+1/3 & \bar{X}+s_X & s_X \\
+\end{bmatrix}
+, \;
+\theta_4 =
+\begin{bmatrix}
+p_{(1)} & \bar{X}_{(1)} & s_{X(1)} \\
+p_{(2)} & \bar{X}_{(2)} & s_{X(2)} \\
+p_{(3)} & \bar{X}_{(3)} & s_{X(3)} \\
+\end{bmatrix}
+$$
+
+```{r compare time}
+num_rep <- 20
+
+t3 <- as.numeric(Sys.time())
+for (t in 1:num_rep)
+{
+  EM_diff(rmixt(1000, w_true, mu_true, sigma_true), 3)
+}
+t3 <- as.numeric(Sys.time()) - t3
+cat("Starting from the 3rd initialization, the optimization takes",
+    t3/num_rep, "seconds.\n")
+
+t4 <- as.numeric(Sys.time())
+for (t in 1:num_rep)
+{
+  EM_group(rmixt(1000, w_true, mu_true, sigma_true), 3)
+}
+t4 <- as.numeric(Sys.time()) - t4
+cat("Starting from the 4th initialization, the optimization takes",
+    t4/num_rep, "seconds.")
+```
+
+
+**While the EM algorithm initialized by group statistics seems more time effcient and capturing tiny peaks when weights are strongly skewed, initializing by equal weights and overall statistics shows higher robustness to (i) Peculiar Component:** when a component of the Gaussian mixture model is far away from the others, $s_X$ might not properly describe the distance between component means; **(ii) Misjudged K:** In practice, $K$ is usually determined by counting the peaks in the histogram of sample $X$. If several component means are relatively close, there could be one big lump instead of several peaks. Incorrect $K$ jeopardizes the chance of finding truth. **In conclusion, I would recommend the third way of initialization for its reliability.**
+
+
+```{r Test peculiar component}
+# test robustness against peculiar component
+w <- rep(1/3, 3)
+mu <- c(-10,0,2)
+sigma <- rep(1,3)
+
+Compare <- function(w, mu, sigma, K, topic)
+{
+  x <- rmixt(2000, w, mu, sigma)
+  hist(x, breaks=45, freq=FALSE, col="darkslategray3", 
+       main=topic, xlab="Sample", ylim=c(0,0.4))
+  lines(xx<-seq(min(x),max(x),by=0.1), 
+        dmixt(xx, w, mu, sigma),
+        col="darkred", lwd=1.5)
+  # Estimate 3
+  Est3 <- EM_diff(x,K)
+  lines(xx, dmixt(xx,Est3[,1],Est3[,2],Est3[,3]), 
+        col="darkviolet",lty="dashed", lwd=2)
+  # Estimate 4
+  Est4 <- EM_group(x,K)
+  lines(xx, dmixt(xx,Est4[,1],Est4[,2],Est3[,3]), 
+        col="darkorange", lty="dashed", lwd=2)
+  legend("topleft",
+         legend=c("Empirical Histogram","True Density", "Estimate 3", "Estimate 4"),
+         col=c('darkslategray3','darkred','darkviolet','darkorange'),
+         text.col=c('darkslategray3','darkred','darkviolet','darkorange'),
+         pch=c(15,16,16,16))
+}
+
+set.seed(99)
+Compare(w, mu, sigma, K=3, topic="Robustness against Peculiar Component")
+```
+
+
+```{r test skewed weights}
+# test robustness against skewed weights
+w <- c(0.1, 0.1, 0.8)
+mu <- seq(0, 10, length.out = 3)
+sigma <- rep(1,3)
+
+set.seed(88)
+Compare(w, mu, sigma, K=3, topic="Robustness against Skewed Weights")
+```
+
+```{r test misjudge K}
+# test robustness against misjudged K
+w <- rep(0.25,4)
+mu <- c(-10,0,1,2)
+sigma <- rep(1,4)
+
+set.seed(222)
+Compare(w,mu,sigma, K=2, topic="Robustness against Misjudged K")
+```
+
+## Exercise 2
+
+Consider the following data:
+```{r linear model}
+set.seed(110)
+X <- rexp(500)
+Y <- 2 + 0.5 * X + rnorm(500)
+DATA <- data.frame(Y, X)
+```
+We fit a linear model to this data and compute confidence intervals for both parameters:
+```{r CI classical}
+fit <- lm(Y ~ X, data = DATA)
+CI <- confint(fit)
+print(CI)
+```
+Now implement a bootstrap algorithm to estimate 95%-confidence intervals for both 
+parameters. Compare your results to the confidence intervals above.
+
+**Solution:**
+
+**Take $\{(X_i,Y_i)\}_{i=1}^{i=500}$ as the population and simulate $n=2000$ random samples from it with replacement. Fit a linear model each time and compute a sample of $\hat{\beta}$. Construct an empirical "sampling distribution" of $\hat{\beta}$ by repeating this procedure $n=2000$ times.**
+
+**The distribution of $\hat{\beta}$ does not appear to be Gaussian, and the confidence intervals calculated from bootstrapping is much narrower than the classical ones.**
+```{r CI bootstrap}
+alpha <- 1-0.95
+set.seed(505)
+# simulate the distribution of model coefficients
+num_draw <- 2000
+D <- matrix(0, nrow=2, ncol=num_draw)
+for (j in 1:num_draw)
+{
+  ml <- lm(Y ~ X, data=DATA[sample.int(500,num_draw,replace=TRUE),])
+  D[,j] <- ml$coefficients
+}
+
+# compute bootstrap confidence interval
+BT <- 2*fit$coefficients - t(apply(D,1, quantile, c(1-alpha/2,alpha/2)))
+print(BT)
+```
+
+```{r simulated distribution}
+# intercept
+hist(D[1,], breaks=30, col="darkblue", main="Intercept",
+     xlab=expression(beta[0]), xlim=c(1.8,2.1))
+abline(v=CI[1,1], col="darkturquoise",lwd=2, lty="dashed")
+abline(v=BT[1,1], col="darkseagreen", lwd=2)
+abline(v=BT[1,2], col="darkseagreen", lwd=2)
+abline(v=CI[1,2], col="darkturquoise",lwd=2, lty="dashed")
+legend("topright",
+       legend=c('Simulated Distribution','CI Classical','CI Bootstrap'),
+       col=c('darkblue','darkturquoise','darkseagreen'),
+       text.col=c('darkblue','darkturquoise','darkseagreen'),
+       pch=c(15,16,16))
+
+# slope
+hist(D[2,], breaks=30, col="darkred", main="Slope",
+     xlab=expression(beta[1]), xlim=c(0.45,0.65))
+abline(v=CI[2,1], col="darkgoldenrod1", lwd=2, lty="dashed")
+abline(v=BT[2,1], col="darksalmon", lwd=2)
+abline(v=CI[2,2], col="darkgoldenrod1", lwd=2, lty="dashed")
+abline(v=BT[2,2], col="darksalmon", lwd=2)
+legend("topright",
+       legend=c('Simulated Distribution','CI Classical','CI Bootstrap'),
+       col=c('darkred','darkgoldenrod1','darksalmon'),
+       text.col=c('darkred','darkgoldenrod1','darksalmon'),
+       pch=c(15,16,16))
+```
+
+
