@@ -1,0 +1,605 @@
+---
+title: "Reinsurance"
+author: "Ariel (Xiao) LIANG"
+date: "10/22/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plotly)
+library(copula)
+```
+
+```{r dataset}
+DATA <- read.delim("insurance.csv", header=TRUE, sep=",")
+```
+
+# Introduction
+
+```{r 2D histogram, echo=FALSE}
+fig1 <- plot_ly(data=DATA, x=~PLI, name="PLI",
+                type="histogram", histnorm="probability", 
+                marker=list(color="darkolivegreen",
+                            line=list(color="darkgreen",width=2))) %>%
+  layout(title="PLI",
+         xaxis = list(title="Loss Incurred for PLI",zeroline=TRUE),
+         yaxis = list(title="Frequency",zeroline=TRUE))
+
+fig2 <- plot_ly(data=DATA, x=~WC, name="WC",
+                type="histogram", histnorm="probability", 
+                marker=list(color="darksalmon",
+                            line=list(color="darkorange",width=2))) %>%
+  layout(title="WC",
+         xaxis = list(title="Loss Incurred for WC",zeroline=TRUE),
+         yaxis = list(title="Frequency",zeroline=TRUE))
+  
+subplot(fig1, fig2)
+```
+
+
+```{r 3D histogram}
+plot_ly(data=DATA, x=~PLI, y=~WC) %>%
+   add_histogram2d() %>%
+   layout(title="Joint Distribution of (PLI,WC)",
+          xaxis=list(title="Loss Incurred for PLI",zeroline=TRUE),
+          yaxis=list(title="Loss Incurred for WC",zeroline=TRUE)
+         )
+```
+
+
+
+
+# Problem Statement
+
+
+# Model Fitting
+
+## MLE for $(\mu_1, \sigma_1), (\mu_2, \sigma_2)$
+
+```{r MLE lognormal}
+Obj <- function(mu_var, x)
+{
+  mu <- mu_var[1]
+  var <- mu_var[2]
+  L <- dlnorm(x, meanlog=mu, sdlog=sqrt(var), log = TRUE)
+  return(-sum(L))
+}
+
+MLE_lognormal <- function(x)
+{
+  mu_0 <- log(median(x))
+  var_0 <- 2*(log(mean(x)) - mu_0)
+  res <- nlm(Obj, c(mu_0,var_0), x)
+  return(res$estimate)
+}
+
+para1 <- MLE_lognormal(DATA$PLI)
+mu_hat_1 <- para1[1]
+sig_hat_1 <- sqrt(para1[2])
+para2 <- MLE_lognormal(DATA$WC)
+mu_hat_2 <- para2[1]
+sig_hat_2 <- sqrt(para2[2])
+cat("Numerically, \n MLE for PLI:", para1, "\n MLE for WC:", para2, "\n")
+```
+
+
+```{r MLE analytical}
+MLE_lognormal_math <- function(x)
+{
+  mu_est <- mean(log(x))
+  var_est <- sum((log(x)-mu_est)^2) / length(x)
+  return(c(mu_est,var_est))
+}
+cat("Analytically, \n MLE for PLI:", MLE_lognormal_math(DATA$PLI), "\n MLE for WC:", MLE_lognormal_math(DATA$WC), "\n")
+```
+
+
+```{r PLI fitted viz}
+hist(DATA$PLI, breaks=40, freq=FALSE, col="darkolivegreen",
+     xlab="Loss Incurred for PLI", ylab="Probability Density",
+     main="PLI", ylim=c(0,0.12))
+lines(x <- seq(0.1,60,by=0.1), 
+      y=dlnorm(x,mu_hat_1,sig_hat_1),
+      col="darkolivegreen2", lwd=2)
+legend("topright", 
+       legend=c("Empirical Distribution", "Fitted Density"),
+       col=c("darkolivegreen", "darkolivegreen2"), 
+       pch=c(15,15))
+```
+
+
+```{r WC fitted viz}
+hist(DATA$WC, breaks=40, freq=FALSE, col="darksalmon",
+     xlab="Loss Incurred for WC", ylab="Probability Density",
+     main="WC", ylim=c(0,0.12))
+lines(x <- seq(0.1,60,by=0.1), 
+      y=dlnorm(x,mu_hat_2,sig_hat_2),
+      col="darkred", lwd=2)
+legend("topright", 
+       legend=c("Empirical Distribution", "Fitted Density"),
+       col=c("darksalmon", "darkred"), 
+       pch=c(15,15))
+```
+
+## MLE for $\theta$
+
+```{r MLE copula}
+obj <- function(theta, u1, u2)
+{
+  L <- dCopula(matrix(c(u1,u2),ncol=2), joeCopula(theta), log=TRUE)
+  return(-sum(L))
+}
+
+MLE_copula <- function(x1,mu_var_1, x2,mu_var_2)
+{
+  U1 <- plnorm(x1, meanlog=mu_var_1[1], sdlog=sqrt(mu_var_1[2]))
+  U2 <- plnorm(x2, meanlog=mu_var_2[1], sdlog=sqrt(mu_var_2[2]))
+  res <- nlm(obj, 1.4, U1, U2)
+  return(res$estimate)
+}
+
+theta_hat = MLE_copula(DATA$PLI,MLE_lognormal(DATA$PLI),
+                       DATA$WC, MLE_lognormal(DATA$WC))
+cat("MLE for the Copula parameter:",theta_hat)
+```
+
+
+# Simulation Study
+
+```{r simlate function}
+Simul <- function(n, mu1,sig1, mu2,sig2, theta)
+{
+  U <- rCopula(n, joeCopula(theta))
+  X1 <- qlnorm(U[,1], meanlog=mu1, sdlog=sig1)
+  X2 <- qlnorm(U[,2], meanlog=mu2, sdlog=sig2)
+  return(cbind(X1,X2))
+}
+```
+
+
+## Influence of Model Parameters
+
+```{r compare vis obs VS sim}
+Simul_tweak <- function(mu1_p,sig1_p, mu2_p,sig2_p, theta_p)
+{
+  X <- Simul(n = length(DATA$PLI),
+            mu1=mu1_p*mu_hat_1, sig1=sig1_p*sig_hat_1,
+            mu2=mu2_p*mu_hat_2, sig2=sig2_p*sig_hat_2,
+            theta=theta_p*theta_hat)
+  fig1 <- plot_ly(alpha = 0.5) %>% 
+            add_histogram(data=DATA, x=~PLI, 
+                          name="Observed",
+                          marker=list(color="darkolivegreen"),
+                          xbins=list(start=0,end=60,size=1.2)
+                         ) %>% 
+            add_histogram(x = ~X[,1], name="Simulated",
+                          marker=list(color="lightgreen"),
+                          xbins=list(start=0,end=60,size=1.2)
+                         ) %>% 
+            layout(barmode = "overlay")
+  fig2 <- plot_ly(alpha = 0.8) %>% 
+            add_histogram(data=DATA, x=~WC, 
+                          name="Observed",
+                          marker=list(color="darksalmon"),
+                          xbins=list(start=0,end=80,size=1.5)
+                         ) %>% 
+            add_histogram(x = ~X[,2], name="Simulated",
+                          marker=list(color="tan"),
+                          xbins=list(start=0,end=80,size=1.5)
+                         ) %>% 
+            layout(barmode = "overlay")
+  return(list(fig1, fig2))
+}
+```
+
+
+
+```{r tweak mu1}
+P <- Simul_tweak(0.8, 1,1,1,1)
+P[[1]] %>%
+  layout(title=TeX("\\mu_1 = 0.8 \\hat\\mu_1")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>% 
+  layout(title=TeX("\\mu_1 = 0.8 \\hat\\mu_1")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1, 1,1,1,1)
+P[[1]] %>%
+  layout(title=TeX("\\mu_1 = \\hat\\mu_1")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\mu_1 = \\hat\\mu_1")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1.2, 1,1,1,1)
+P[[1]] %>%
+  layout(title=TeX("\\mu_1 = 1.2 \\hat\\mu_1")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\mu_1 = 1.2 \\hat\\mu_1")) %>%
+  config(mathjax = "cdn")
+```
+
+
+```{r tweak sigma1}
+P <- Simul_tweak(1, 0.8, 1,1,1)
+P[[1]]  %>%
+  layout(title=TeX("\\sigma_1 = 0.8 \\hat\\sigma_1")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\sigma_1 = 0.8 \\hat\\sigma_1")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1, 1, 1,1,1)
+P[[1]] %>%
+  layout(title=TeX("\\sigma_1 = \\hat\\sigma_1")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\sigma_1 = \\hat\\sigma_1")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1, 1.2, 1,1,1)
+P[[1]] %>%
+  layout(title=TeX("\\sigma_1 = 1.2 \\hat\\sigma_1")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\sigma_1 = 1.2 \\hat\\sigma_1")) %>%
+  config(mathjax = "cdn")
+```
+
+
+```{r tweak mu2}
+P <- Simul_tweak(1,1, 0.8, 1,1)
+P[[1]]%>%
+  layout(title=TeX("\\mu_2 = 0.8 \\hat\\mu_2")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\mu_2 = 0.8 \\hat\\mu_2")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1,1, 1, 1,1)
+P[[1]] %>%
+  layout(title=TeX("\\mu_2 = \\hat\\mu_2")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\mu_2 = \\hat\\mu_2")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1,1, 1.2, 1,1)
+P[[1]] %>%
+  layout(title=TeX("\\mu_2 = 1.2 \\hat\\mu_2")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\mu_2 = 1.2 \\hat\\mu_2")) %>%
+  config(mathjax = "cdn")
+```
+
+
+```{r tweak sigma2}
+P <- Simul_tweak(1,1,1, 0.8, 1)
+P[[1]] %>%
+  layout(title=TeX("\\sigma_2 = 0.8 \\hat\\sigma_2")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\sigma_2 = 0.8 \\hat\\sigma_2")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1,1,1, 1, 1)
+P[[1]] %>%
+  layout(title=TeX("\\sigma_2 = \\hat\\sigma_2")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\sigma_2 = \\hat\\sigma_2")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1,1,1, 1.2, 1)
+P[[1]] %>%
+  layout(title=TeX("\\sigma_2 = 1.2 \\hat\\sigma_2")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\sigma_2 = 1.2 \\hat\\sigma_2")) %>%
+  config(mathjax = "cdn")
+```
+
+
+
+```{r tweak theta marginal}
+P <- Simul_tweak(1,1,1,1, 0.8)
+P[[1]] %>%
+  layout(title=TeX("\\theta = 0.8 \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+P[[2]] %>%
+  layout(title=TeX("\\theta = 0.8 \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1,1,1,1, 1)
+P[[1]] %>%
+  layout(title=TeX("\\theta = \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+P[[2]]%>%
+  layout(title=TeX("\\theta = \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+
+P <- Simul_tweak(1,1,1,1, 1.2)
+P[[1]] %>%
+  layout(title=TeX("\\theta = 1.2 \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+P[[2]]  %>%
+  layout(title=TeX("\\theta = 1.2 \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+```
+
+
+```{r tweak theta scatter}
+fig <- plot_ly(data=DATA, x=~PLI, y =~WC,
+               name="Observed", type="scatter", mode="markers",
+               marker=list(size=10,color="darkblue")
+              ) %>% 
+          layout(yaxis = list(zeroline = TRUE),
+                 xaxis = list(zeroline = TRUE))
+# shrink theta
+X <- Simul(length(DATA$PLI), 
+           mu_hat_1, sig_hat_1, 
+           mu_hat_2, sig_hat_2, theta_hat*0.8)
+fig %>% 
+  add_trace(x=~X[,1], y=~X[,2], name="Simulated",
+                  marker=list(size=10,color="darkred")) %>%
+  layout(title=TeX("\\theta = 0.8 \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+# retain theta
+X <- Simul(length(DATA$PLI), 
+           mu_hat_1, sig_hat_1, 
+           mu_hat_2, sig_hat_2, theta_hat*1)
+fig %>% 
+  add_trace(x=~X[,1], y=~X[,2], name="Simulated",
+                  marker=list(size=10,color="darkred")) %>%
+  layout(title=TeX("\\theta = \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+# boost theta
+X <- Simul(length(DATA$PLI), 
+           mu_hat_1, sig_hat_1, 
+           mu_hat_2, sig_hat_2, theta_hat*1.2)
+fig %>% 
+  add_trace(x=~X[,1], y=~X[,2], name="Simulated",
+                  marker=list(size=10,color="darkred")) %>%
+  layout(title=TeX("\\theta = 1.2 \\hat\\theta")) %>%
+  config(mathjax = "cdn")
+```
+
+## Estimation Performance
+
+```{r performance func}
+perform <- function(n)
+{
+  X <- Simul(n, mu1=1,sig1=2, mu2=3,sig2=0.5, theta=2) 
+  para1 <- MLE_lognormal(X[,1])
+  para2 <- MLE_lognormal(X[,2])
+  theta_h <- MLE_copula(X[,1],para1, X[,2],para2)
+  return(c(para1, para2, theta_h))
+}
+```
+```{r replicate}
+set.seed(19)
+CT <- c()
+RMSE <- c()
+for (n in c(200,500,1000))
+{
+  t <- system.time(RES <- matrix(replicate(100,perform(n)),nrow=5))
+  CT <- c(CT,t[[1]])
+  for (j in 1:100)
+  {
+    RES[,j] <- (RES[,j] - c(1,2,3,0.5,2))^2
+  }
+  res <- apply(RES, 1, mean)
+  RMSE <- c(RMSE, sqrt(res))
+}
+
+```
+
+
+
+
+```{r performance viz}
+# computing time
+plot(c(200,500,1000), CT, col='black', pch=17, cex=2,
+     xlab="n", ylab="Average Computing Time",
+     main="Time Efficiency")
+# RMSE
+RMSE <- matrix(RMSE, nrow=5)
+C <- c("darkorange","darkorange","darkgreen","darkgreen","orchid4")
+P <- c(16,18,16,18,15)
+TX <- c(expression(mu[1]), expression(sigma[1]),
+        expression(mu[2]), expression(sigma[2]),
+        expression(theta))
+for (i in c(5,1,2,3,4))
+{
+  plot(c(200,500,1000), RMSE[i,], col=C[i], pch=P[i], cex=2,
+       main=TX[i], xlab="n", ylab="RMSE")
+}
+```
+
+
+```{r Log-Normal density}
+x1 <- seq(0.01,10,by=0.05)
+plot_ly(x=x1,y=dlnorm(x1,1,2),
+        type="scatter", mode="lines",
+        line=list(color="darkolivegreen",width=3)
+       ) %>%
+  layout(title=TeX("\\mu_1 = 1, \\sigma_1 = 2"),
+         xaxis=list(title=TeX("X_1"),zeroline=TRUE),
+         yaxis=list(title="Probability Density",zeroline=TRUE)
+        ) %>%
+  config(mathjax = "cdn")
+
+x2 <- seq(0.1,50,by=0.05)
+plot_ly(x=x2,y=dlnorm(x2,3,0.5),
+        type="scatter", mode="lines",
+        line=list(color="darksalmon",width=3)
+       ) %>%
+  layout(title=TeX("\\mu_2 = 3, \\sigma_2 = 0.5"),
+         xaxis=list(title=TeX("X_2"),zeroline=TRUE),
+         yaxis=list(title="Probability Density",zeroline=TRUE)
+        ) %>%
+  config(mathjax = "cdn")
+```
+
+
+# Decision-making
+
+## Naive Approach
+
+```{r V(t) naive}
+g <- function(X,t)
+{
+  z <- X[,1] + X[,2]
+  return(z*(z>t))
+  
+}
+
+Payout_naive <- function(t, num_samp=100000, alpha=1-0.8)
+{
+  X <- Simul(num_samp, 
+             mu_hat_1, sig_hat_1, 
+             mu_hat_2, sig_hat_2, 
+             theta_hat)
+  pool <- g(X, t)
+  S <- sample(pool, size=num_samp, replace=TRUE)
+  Naive_center <- mean(S)
+  Naive_lower <- 2*Naive_center - quantile(S, 1-0.5*alpha)
+  Naive_upper <- 2*Naive_center - quantile(S, 0.5*alpha)
+  return(c(Naive_center,Naive_lower,Naive_upper))
+}
+```
+
+
+
+## Importance Sampling
+
+```{r V(t) IS}
+f <- function(v1,v2, mu_1,sig_1, mu_2,sig_2, theta)
+{
+  res <- dlnorm(v1, mu_1, sig_1, log=TRUE) 
+  res <- res + dlnorm(v2, mu_2, sig_2, log=TRUE)
+  u1 <- plnorm(v1, mu_1, sig_1)
+  u2 <- plnorm(v2, mu_2, sig_2)
+  res <- res + dCopula(cbind(u1,u2), joeCopula(theta), log=TRUE)
+  return(exp(res))
+}
+
+h <- function(Y, t)
+{
+  mu_new <- log(t/2)
+  up <- f(Y[,1],Y[,2],mu_hat_1,sig_hat_1,mu_hat_2,sig_hat_2,theta_hat)
+  down <- f(Y[,1],Y[,2],mu_new,sig_hat_1,mu_new,sig_hat_2,theta_hat)
+  return(g(Y,t)*up/down)
+}
+
+Payout_IS <- function(t, num_samp=10000, alpha=1-0.8)
+{
+  Y <- Simul(num_samp, 
+             mu_new, sig_hat_1, 
+             mu_new, sig_hat_2, 
+             theta_hat)
+  pool <- h(Y,t)
+  S <- sample(pool, size=num_samp, replace=TRUE)
+  IS_center <- mean(S)
+  IS_lower <- 2*IS_center - quantile(S, 1-0.5*alpha)
+  IS_upper <- 2*IS_center - quantile(S, 0.5*alpha)
+  return(c(IS_center, IS_lower,IS_upper))
+}
+```
+
+
+
+```{r illustrate sknewness}
+# distribution of g(X)
+X <- Simul(100000, 
+           mu_hat_1, sig_hat_1, 
+           mu_hat_2, sig_hat_2, 
+           theta_hat)
+hist(g(X,100), col="steelblue",
+     xlab="g(X,100)", ylab="Probability Density",
+     main="Simulated Distribution of g(X)")
+
+# distribution of h(Y)
+Y <- Simul(100000, 
+           log(100/2), sig_hat_1, 
+           log(100/2), sig_hat_2, 
+           theta_hat)
+hist(h(Y,100), col="plum4",
+     xlab="h(Y,100)", ylab="Probibility Density",
+     main="Simulated Distribution of h(Y)")
+```
+
+
+
+```{r compute V(t)}
+set.seed(119)
+
+t <- seq(100,200,by=5)
+
+Naive <- c()
+for (tt in t)
+{
+  Naive <- c(Naive, Payout_naive(tt))
+}
+V <- cbind(t, t(matrix(Naive,nrow=3)))
+
+IS <- c()
+for (tt in t)
+{
+  IS <- c(IS, Payout_IS(tt))
+}
+V <- cbind(V, t(matrix(IS,nrow=3)))
+
+V <- as.data.frame(V)
+colnames(V) <- c("t",
+                 "Naive_center","Naive_lower","Naive_upper",
+                 "IS_center","IS_lower","IS_upper")
+print(V)
+```
+
+
+## Bootstrapping Confidence Interval
+
+```{r V(t) viz}
+
+# P(t)
+pic <- plot_ly(data=V, x = ~t) %>% 
+         add_trace(y = ~40000*exp(-t/7), name = "P(t)",
+                   type = "scatter", mode="lines",
+                   line=list(color="gray",width=2)
+                  ) %>%
+        layout(title = 'Payout VS Price',
+               yaxis=list(title="Amount / million euros",zeroline=TRUE),
+               xaxis = list(title="t",zeroline = TRUE)
+              )
+# V(t)
+tag <- c("V(t): Naive estimate","V(t): Naive lower","V(t): Naive upper",
+         "V(t): IS estimate","V(t): IS lower", "V(t): IS upper")
+CLR <- c("darkblue", "powderblue", "mediumaquamarine",
+         "darkred", "wheat", "tan")
+for (j in 1:6)
+{
+  pic <- pic %>%
+    add_trace(x = V[,1], y = V[,j+1], name = tag[j],
+              type = "scatter", mode = 'lines+markers',
+              marker=list(size=8,color=CLR[j]),
+              line=list(color=CLR[j],width=1.5)
+             )
+}
+  
+pic
+```
+
+
+
+
+
+
+
+
+
+# Conclusion
+
